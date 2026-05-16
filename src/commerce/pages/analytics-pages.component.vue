@@ -5,20 +5,84 @@
   <div class="analytics-page">
     <div class="content-container">
       <div class="page-header">
-        <h1>{{this.hotelName}}</h1>
-        <p class="subtitle">{{ i18n.global.t('analytics.overview')}}</p>
+        <div class="header-left">
+          <h1>{{this.hotelName}}</h1>
+          <p class="subtitle">{{ i18n.global.t('analytics.overview')}}</p>
 
-        <div class="tabs">
-          <div
-              v-for="tab in tabsWithLabels"
-              :key="tab.id"
-              :class="['tab', { active: activeTab === tab.id }]"
-              @click="changeTab(tab.id)"
-          >
-            {{ tab.label }}
+          <div class="tabs">
+            <div
+                v-for="tab in tabsWithLabels"
+                :key="tab.id"
+                :class="['tab', { active: activeTab === tab.id }]"
+                @click="changeTab(tab.id)"
+            >
+              {{ tab.label }}
+            </div>
           </div>
         </div>
 
+        <div class="header-stats">
+          <!-- Card: Reservas esta semana -->
+          <div class="stat-card stat-card--blue">
+            <div class="stat-card__header">
+              <span class="stat-card__title">RESERVAS ESTA SEMANA</span>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <rect x="3" y="4" width="18" height="18" rx="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </div>
+            <div class="stat-card__body">
+              <span class="stat-card__value">{{ weeklyBookingsCount }}</span>
+              <svg class="stat-card__sparkline" viewBox="0 0 80 30" preserveAspectRatio="none">
+                <polyline
+                    points="0,25 10,20 20,22 30,10 40,14 50,8 60,12 70,5 80,8"
+                    fill="none"
+                    stroke="rgba(255,255,255,0.7)"
+                    stroke-width="2"
+                    stroke-linejoin="round"
+                />
+              </svg>
+            </div>
+            <div class="stat-card__footer">
+              <span :class="weeklyBookingChange >= 0 ? 'trend-up' : 'trend-down'">
+                {{ weeklyBookingChange >= 0 ? '+' : '' }}{{ weeklyBookingChange }}% vs. Last Week
+              </span>
+            </div>
+          </div>
+
+          <!-- Card: Clientes nuevos -->
+          <div class="stat-card stat-card--white">
+            <div class="stat-card__header">
+              <span class="stat-card__title stat-card__title--dark">CLIENTES NUEVOS</span>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.8">
+                <circle cx="12" cy="8" r="4"/>
+                <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+                <circle cx="18" cy="7" r="3" fill="#2563eb" stroke="none"/>
+                <path d="M16.5 7l1 1 2-2" stroke="white" stroke-width="1.5" fill="none"/>
+              </svg>
+            </div>
+            <div class="stat-card__body">
+              <span class="stat-card__value stat-card__value--dark">{{ monthlyNewClientsCount }}</span>
+              <svg class="stat-card__donut" viewBox="0 0 36 36">
+                <circle cx="18" cy="18" r="14" fill="none" stroke="#e5e7eb" stroke-width="4"/>
+                <circle
+                    cx="18" cy="18" r="14"
+                    fill="none"
+                    stroke="#2563eb"
+                    stroke-width="4"
+                    stroke-dasharray="87.96 87.96"
+                    stroke-dashoffset="22"
+                    transform="rotate(-90 18 18)"
+                />
+              </svg>
+            </div>
+            <div class="stat-card__footer">
+              <span class="stat-card__footer--dark">Total This Month: {{ monthlyNewClientsCount }}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="chart-container">
@@ -56,6 +120,7 @@
 import { DashboardApiService } from "../services/dashboard-api.service.js";
 import { Dashboard } from "../model/dashboard.entity.js";
 import { HotelsApiService } from "../../shared/services/hotels-api.service.js";
+import { BookingApiService } from "../../reservations/services/booking-api.service.js";
 import LineChart from "../components/line-chart.vue";
 import {Hotel} from "../../shared/model/hotel.entity.js";
 import MainPageNavigation from "../../organizational-management/components/main-page-navigation.component.vue";
@@ -82,8 +147,10 @@ export default {
       userId: userId,
       dashboardApi: new DashboardApiService(),
       hotelApi: new HotelsApiService(),
+      bookingApi: new BookingApiService(),
       dashboard: [],
       monthlyDashboard: [],
+      bookings: [],
       isLoading: false,
       navigationItems: [
         {id: "overview", label: "Overview", path: "", icon: OverviewIcon, isActive: true},
@@ -182,6 +249,38 @@ export default {
     },
     activeDashboard() {
       return this.activeTab === 'monthly' ? this.monthlyDashboard : this.dashboard;
+    },
+
+    weeklyBookingsCount() {
+      const { start, end } = this.currentWeekRange();
+      return this.bookings.filter(b => {
+        const d = new Date(b.startDate);
+        return d >= start && d < end;
+      }).length;
+    },
+
+    weeklyBookingChange() {
+      const { start } = this.currentWeekRange();
+      const lastStart = new Date(start);
+      lastStart.setDate(lastStart.getDate() - 7);
+      const lastEnd = new Date(start);
+      const lastWeekCount = this.bookings.filter(b => {
+        const d = new Date(b.startDate);
+        return d >= lastStart && d < lastEnd;
+      }).length;
+      if (lastWeekCount === 0) return 0;
+      return Math.round(((this.weeklyBookingsCount - lastWeekCount) / lastWeekCount) * 100);
+    },
+
+    monthlyNewClientsCount() {
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const monthBookings = this.bookings.filter(b => {
+        const d = new Date(b.startDate);
+        return d >= monthStart && d < nextMonthStart;
+      });
+      return new Set(monthBookings.map(b => b.paymentCustomerId)).size;
     }
   },
 
@@ -253,6 +352,28 @@ export default {
       if (tabId === 'monthly' && this.monthlyDashboard.length === 0) {
         this.fetchMonthlyData();
       }
+    },
+
+    currentWeekRange() {
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const start = new Date(now);
+      start.setDate(now.getDate() - daysToMonday);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 7);
+      return { start, end };
+    },
+
+    async fetchBookings() {
+      try {
+        const res = await this.bookingApi.getBookings(this.hotelId);
+        this.bookings = res.data || [];
+      } catch (error) {
+        console.error("Error fetching bookings:", error);
+        this.bookings = [];
+      }
     }
   },
 
@@ -291,6 +412,8 @@ export default {
         this.dashboard = [];
       }
 
+      await this.fetchBookings();
+
     } catch (error) {
       console.error("Error fetching hotel:", error);
       this.hotelName = "Hotel Not Found";
@@ -316,6 +439,110 @@ export default {
 
 .page-header {
   margin-bottom: 2rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.header-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.header-stats {
+  display: flex;
+  gap: 1rem;
+  flex-shrink: 0;
+  align-items: flex-start;
+}
+
+/* Stat Cards */
+.stat-card {
+  border-radius: 12px;
+  padding: 1.1rem 1.3rem;
+  width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.stat-card--blue {
+  background: linear-gradient(135deg, #1d6fec 0%, #2563eb 60%, #1a56db 100%);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.3);
+}
+
+.stat-card--white {
+  background: #fff;
+  border: 1.5px solid #e5e7eb;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.stat-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stat-card__title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.stat-card__title--dark {
+  color: #374151;
+}
+
+.stat-card__body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stat-card__value {
+  font-size: 2.4rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+}
+
+.stat-card__value--dark {
+  color: #111827;
+}
+
+.stat-card__sparkline {
+  width: 80px;
+  height: 30px;
+  flex-shrink: 0;
+}
+
+.stat-card__donut {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+}
+
+.stat-card__footer {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.stat-card__footer--dark {
+  color: #6b7280;
+}
+
+.trend-up {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 500;
+}
+
+.trend-down {
+  color: #fca5a5;
+  font-weight: 500;
 }
 
 h1 {
